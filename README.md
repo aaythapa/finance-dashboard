@@ -51,7 +51,7 @@ Git is used to download this project from GitHub.
 Open Terminal and run these two commands one at a time:
 
 ```
-git clone https://github.com/YOUR_USERNAME/finance-dashboard.git
+git clone https://github.com/aaythapa/finance-dashboard.git
 ```
 ```
 cd finance-dashboard
