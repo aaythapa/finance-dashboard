@@ -1,3 +1,5 @@
+Made in ~1 hour using claude :P
+
 # 💰 Finance Dashboard
 
 A personal finance tracker that imports your TD, AMEX, and WealthSimple statements into a local dashboard where you can visualize and categorize your spending. Everything runs on your computer — no accounts, no cloud, no subscriptions.
