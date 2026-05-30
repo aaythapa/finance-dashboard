@@ -47,7 +47,10 @@ def ensure_data_dir():
 def load_json(path, default):
     if path.exists():
         with open(path) as f:
-            return json.load(f)
+            content = f.read().strip()
+            if not content:
+                return default
+            return json.loads(content)
     return default
 
 def save_json(path, data):
