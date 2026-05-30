@@ -103,13 +103,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
         body = json.loads(self.rfile.read(length)) if length else {}
 
         if path == "/api/transactions/categorize":
-            # Bulk categorize: { updates: [{id, category, notes?}] }
             db = load_json(TRANSACTIONS_FILE, {})
             updated = 0
             for upd in body.get("updates", []):
                 tx_id = upd.get("id")
                 if tx_id and tx_id in db:
                     db[tx_id]["category"] = upd.get("category")
+                    db[tx_id]["categories"] = upd.get("categories", [])
                     if "notes" in upd:
                         db[tx_id]["notes"] = upd["notes"]
                     updated += 1

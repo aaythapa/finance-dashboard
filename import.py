@@ -37,6 +37,12 @@ DEFAULT_CATEGORIES = [
 
 def ensure_data_dir():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
+    if not CATEGORIES_FILE.exists():
+        save_json(CATEGORIES_FILE, DEFAULT_CATEGORIES)
+        print(f"✓ Created categories file with {len(DEFAULT_CATEGORIES)} default categories.")
+    if not TRANSACTIONS_FILE.exists():
+        save_json(TRANSACTIONS_FILE, {})
+        print(f"✓ Created transactions file.")
 
 def load_json(path, default):
     if path.exists():
@@ -114,17 +120,26 @@ def detect_institution(path: Path, lines: list[str]) -> "str | None":
     if "activities-export" in name or "transaction_date" in head and "account_type" in head:
         return "wealthsimple"
     if "accountactivity" in name:
-        return "td"
+        # Distinguish chequing (YYYY-MM-DD) from credit (MM/DD/YYYY) by date format
+        first = lines[0] if lines else ""
+        if re.match(r"\d{2}/\d{2}/\d{4}", first):
+            return "td_credit"
+        return "td_chequing"
     # Try content-based detection
     if "account_type" in head and "activity_type" in head:
         return "wealthsimple"
     if "american express" in head:
         return "amex"
-    # TD: headerless CSV with date, description, debit, credit, balance
+    # TD chequing: headerless CSV, YYYY-MM-DD dates
     if re.match(r"\d{4}-\d{2}-\d{2}", lines[0] if lines else ""):
         parts = lines[0].split(",")
         if len(parts) == 5:
-            return "td"
+            return "td_chequing"
+    # TD credit: headerless CSV, MM/DD/YYYY dates
+    if re.match(r"\d{2}/\d{2}/\d{4}", lines[0] if lines else ""):
+        parts = lines[0].split(",")
+        if len(parts) == 5:
+            return "td_credit"
     return None
 
 
@@ -261,6 +276,63 @@ def parse_td(path: Path) -> list[dict]:
 
     return transactions
 
+def parse_td_credit(path: Path) -> list[dict]:
+    """
+    TD Credit Card activity CSV.
+    No headers. Columns: date (MM/DD/YYYY), description, charge, payment, balance
+    Charge = money out (debit), payment = money in (credit).
+    """
+    import csv
+
+    transactions = []
+    with open(path, newline="", encoding="utf-8-sig") as f:
+        reader = csv.reader(f)
+        for row in reader:
+            if len(row) < 3:
+                continue
+            date = parse_date(row[0].strip(), fmt="%m/%d/%Y")
+            if not date:
+                continue
+            description = row[1].strip() if len(row) > 1 else ""
+            charge = parse_amount(row[2]) if len(row) > 2 else None
+            payment = parse_amount(row[3]) if len(row) > 3 else None
+
+            desc_lower = description.lower()
+            is_transfer = any(kw in desc_lower for kw in [
+                "preauthorized payment", "payment received", "online payment"
+            ])
+
+            if charge:
+                transactions.append({
+                    "id": make_id("td_credit", date, description, -charge),
+                    "date": date,
+                    "description": description,
+                    "amount": charge,
+                    "direction": "debit",
+                    "account": "td_credit",
+                    "institution": "TD",
+                    "is_transfer": is_transfer,
+                    "category": None,
+                    "categories": [],
+                    "notes": "",
+                })
+            if payment:
+                transactions.append({
+                    "id": make_id("td_credit", date, description, payment),
+                    "date": date,
+                    "description": description,
+                    "amount": payment,
+                    "direction": "credit",
+                    "account": "td_credit",
+                    "institution": "TD",
+                    "is_transfer": is_transfer,
+                    "category": None,
+                    "categories": [],
+                    "notes": "",
+                })
+
+    return transactions
+
 
 def parse_wealthsimple(path: Path) -> list[dict]:
     """
@@ -331,13 +403,15 @@ def parse_wealthsimple(path: Path) -> list[dict]:
 
 PARSERS = {
     "amex": parse_amex,
-    "td": parse_td,
+    "td_chequing": parse_td,
+    "td_credit": parse_td_credit,
     "wealthsimple": parse_wealthsimple,
 }
 
 INSTITUTION_LABELS = {
     "amex": "AMEX Cobalt",
-    "td": "TD Chequing",
+    "td_chequing": "TD Chequing",
+    "td_credit": "TD Credit",
     "wealthsimple": "WealthSimple",
 }
 
@@ -522,14 +596,6 @@ def main():
     args = parser.parse_args()
 
     ensure_data_dir()
-
-    if not CATEGORIES_FILE.exists():
-        save_json(CATEGORIES_FILE, DEFAULT_CATEGORIES)
-        print(f"✓ Created categories file with {len(DEFAULT_CATEGORIES)} default categories.")
-
-    if not TRANSACTIONS_FILE.exists():
-        with open(TRANSACTIONS_FILE, 'w') as file:
-            file.write({})
 
     db = load_json(TRANSACTIONS_FILE, {})
 
